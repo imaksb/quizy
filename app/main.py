@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.settings import settings
-from app.routers import auth, quizzes, users, utils
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.routers import auth, quizzes, users, utils, sessions
 
 app = FastAPI()
 
@@ -16,8 +17,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 app.include_router(auth.router)
 app.include_router(quizzes.router)
+app.include_router(sessions.router)
 app.include_router(users.router)
 app.include_router(utils.router)
