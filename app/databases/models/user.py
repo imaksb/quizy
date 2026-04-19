@@ -16,10 +16,10 @@ class User(Base, TableNameMixin, TimeoutMixin):
     id: Mapped[UUID4] = mapped_column(
         UUID, primary_key=True, default=uuid.uuid4, unique=True
     )
-    email: Mapped[str] = mapped_column(VARCHAR(50), unique=True)
-    name: Mapped[str] = mapped_column(VARCHAR(50), unique=True)
-    picture: Mapped[str] = mapped_column(VARCHAR(255), unique=True, nullable=True)
-    email_verified: Mapped[bool] = mapped_column(BOOLEAN, unique=True, nullable=True)
+    email: Mapped[str] = mapped_column(VARCHAR(255), unique=True)
+    name: Mapped[str] = mapped_column(VARCHAR(255))
+    picture: Mapped[str | None] = mapped_column(VARCHAR(2048), nullable=True)
+    email_verified: Mapped[bool | None] = mapped_column(BOOLEAN, nullable=True)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole), nullable=False, default=UserRole.USER
     )
