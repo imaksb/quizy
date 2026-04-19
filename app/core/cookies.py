@@ -1,8 +1,7 @@
-from typing import Any
-
 from starlette.responses import Response
 
 from app.core.settings import settings
+from app.schemas.types import CookieKwargs
 from app.schemas.auth import JWTTokens
 
 
@@ -10,7 +9,7 @@ COOKIE_ACCESS_TOKEN = "ACCESS_TOKEN"
 COOKIE_REFRESH_TOKEN = "REFRESH_TOKEN"
 
 
-def _base_cookie_kwargs() -> dict[str, Any]:
+def _base_cookie_kwargs() -> CookieKwargs:
     """
     Cookie attributes shared by set/delete.
 
@@ -20,7 +19,7 @@ def _base_cookie_kwargs() -> dict[str, Any]:
     """
     is_dev = settings.ENVIRONMENT == "development"
 
-    kwargs: dict[str, Any] = {
+    kwargs: CookieKwargs = {
         "path": "/",
         "secure": not is_dev,
         "samesite": "lax" if is_dev else "none",
@@ -47,12 +46,3 @@ def set_auth_cookies(response: Response, tokens: JWTTokens) -> None:
         httponly=True,
         **base,
     )
-
-
-def clear_auth_cookies(response: Response) -> None:
-    base = _base_cookie_kwargs()
-    base.pop("samesite", None)
-    base.pop("secure", None)
-
-    response.delete_cookie(key=COOKIE_ACCESS_TOKEN, **base)
-    response.delete_cookie(key=COOKIE_REFRESH_TOKEN, **base)
