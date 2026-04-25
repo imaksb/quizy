@@ -7,7 +7,9 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from app.core.settings import settings
-from app.routers import auth, quizzes, users, utils
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.routers import auth, quizzes, users, utils, sessions
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 swagger_security = HTTPBasic()
@@ -64,8 +66,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 app.include_router(auth.router)
 app.include_router(quizzes.router)
+app.include_router(sessions.router)
 app.include_router(users.router)
 app.include_router(utils.router)

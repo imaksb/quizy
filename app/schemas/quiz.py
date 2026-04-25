@@ -124,6 +124,88 @@ class QuizWithQuestionsDetail(QuizDetail):
     questions: list[QuestionDetail]
 
 
+class SessionCreateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    quiz_id: UUID
+    owner_id: UUID
+    status: SessionStatus
+    join_code: str | None
+    access_link_token: str
+    current_question_index: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionParticipantDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID | None = None
+    guest_name: str | None
+    status: ParticipantStatus
+    score: int
+    joined_at: datetime | None = None
+    finished_at: datetime | None
+    is_host: bool
+
+
+class SessionQuestionStateDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    question_id: UUID
+    question_order_index: int
+    status: SessionQuestionStatus
+    started_at: datetime | None
+    closed_at: datetime | None
+    time_limit_seconds: int
+
+
+class SessionDetail(SessionCreateResponse):
+    participants: list[SessionParticipantDetail]
+    question_states: list[SessionQuestionStateDetail]
+    leaderboard: dict | None = None
+
+
+class PlayerAnswerOption(BaseModel):
+    id: UUID
+    answer_text: str
+
+
+class PlayerQuestion(BaseModel):
+    id: UUID
+    question_text: str
+    question_type: QuestionType
+    order_index: int
+    answer_time: int | None
+    points_for_correct_answer: int
+    points_for_incorrect_answer: int
+    hint: str | None
+    image_url: str | None
+    answers: list[PlayerAnswerOption]
+
+
+class PlayerJoinEvent(BaseModel):
+    type: str = "join"
+    player_name: str = Field(min_length=1, max_length=255)
+
+
+class PlayerReconnectEvent(BaseModel):
+    type: str = "reconnect"
+    participant_id: UUID
+    guest_token: str = Field(min_length=1, max_length=255)
+
+
+class PlayerAnswerEvent(BaseModel):
+    type: str = "answer"
+    question_id: UUID
+    answer_option_ids: list[UUID] = Field(min_length=1)
+
+
 QuestionCreate.model_rebuild()
 QuestionDetail.model_rebuild()
 QuizWithQuestionsDetail.model_rebuild()

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     BOOLEAN,
+    JSON,
     TIMESTAMP,
     UUID as SAUUID,
     CheckConstraint,
@@ -125,7 +126,9 @@ class QuizSession(Base, TableNameMixin, TimeoutMixin):
     status: Mapped[SessionStatus] = mapped_column(
         Enum(SessionStatus), default=SessionStatus.CREATED, nullable=False
     )
-    join_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    join_code: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, unique=True, index=True
+    )
     access_link_token: Mapped[str] = mapped_column(String(255), nullable=False)
     current_question_index: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False
@@ -148,10 +151,19 @@ class QuizSession(Base, TableNameMixin, TimeoutMixin):
         cascade="all, delete-orphan",
         order_by="SessionQuestionState.question_order_index",
     )
+    result: Mapped["SessionResult | None"] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
 
 
 class SessionParticipant(Base, TableNameMixin):
     __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "guest_token",
+            name="uq_sessionparticipant_session_guest_token",
+        ),
         CheckConstraint(
             """
             (
@@ -315,3 +327,78 @@ class SessionQuestionState(Base, TableNameMixin):
 
     session: Mapped["QuizSession"] = relationship(back_populates="question_states")
     question: Mapped["Question"] = relationship(back_populates="session_question_states")
+
+
+class SessionResult(Base, TableNameMixin):
+    id: Mapped[UUID] = mapped_column(
+        SAUUID, primary_key=True, default=uuid.uuid4, unique=True
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        SAUUID,
+        ForeignKey("quizsession.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    quiz_id: Mapped[UUID] = mapped_column(
+        SAUUID, ForeignKey("quiz.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    owner_id: Mapped[UUID] = mapped_column(
+        SAUUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True)
+    finished_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+    total_players: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), nullable=False
+    )
+
+    session: Mapped["QuizSession"] = relationship(back_populates="result")
+    players: Mapped[list["SessionPlayerResult"]] = relationship(
+        back_populates="session_result",
+        cascade="all, delete-orphan",
+        order_by="SessionPlayerResult.final_rank",
+    )
+
+
+class SessionPlayerResult(Base, TableNameMixin):
+    id: Mapped[UUID] = mapped_column(
+        SAUUID, primary_key=True, default=uuid.uuid4, unique=True
+    )
+    session_result_id: Mapped[UUID] = mapped_column(
+        SAUUID,
+        ForeignKey("sessionresult.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    participant_id: Mapped[UUID] = mapped_column(SAUUID, nullable=False, index=True)
+    guest_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    final_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    final_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    session_result: Mapped["SessionResult"] = relationship(back_populates="players")
+    answers: Mapped[list["SessionAnswerResult"]] = relationship(
+        back_populates="player_result",
+        cascade="all, delete-orphan",
+    )
+
+
+class SessionAnswerResult(Base, TableNameMixin):
+    id: Mapped[UUID] = mapped_column(
+        SAUUID, primary_key=True, default=uuid.uuid4, unique=True
+    )
+    player_result_id: Mapped[UUID] = mapped_column(
+        SAUUID,
+        ForeignKey("sessionplayerresult.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    question_id: Mapped[UUID] = mapped_column(
+        SAUUID, ForeignKey("question.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    selected_answer_option_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(BOOLEAN, nullable=False)
+    points_awarded: Mapped[int] = mapped_column(Integer, nullable=False)
+    answered_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=False)
+
+    player_result: Mapped["SessionPlayerResult"] = relationship(back_populates="answers")

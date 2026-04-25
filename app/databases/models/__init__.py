@@ -8,8 +8,11 @@ from .quiz import (
     Quiz,
     QuizSession,
     SessionParticipant,
+    SessionAnswerResult,
+    SessionPlayerResult,
     SessionQuestionState,
     SessionQuestionStatus,
+    SessionResult,
     SessionStatus,
 )
 from .user import User
@@ -24,8 +27,11 @@ __all__ = [
     "Quiz",
     "QuizSession",
     "SessionParticipant",
+    "SessionAnswerResult",
+    "SessionPlayerResult",
     "SessionQuestionState",
     "SessionQuestionStatus",
+    "SessionResult",
     "SessionStatus",
     "User",
 ]
