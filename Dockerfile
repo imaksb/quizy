@@ -18,13 +18,15 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_SYSTEM_PYTHON=1
+    UV_SYSTEM_PYTHON=1 \
+    UV_PYTHON=3.12 \
+    UV_PYTHON_DOWNLOADS=never
 
 # Copy dependency files
 COPY pyproject.toml uv.lock* ./
 
 # Install dependencies using uv
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --python 3.12
 
 # Copy application code
 COPY . .
