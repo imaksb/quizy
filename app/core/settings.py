@@ -34,6 +34,25 @@ class Settings(BaseSettings):
 
     FRONTEND_ADMIN_URL: str
     FRONTEND_CLIENT_URL: str
+    CORS_ALLOWED_ORIGINS: str = (
+        "https://mmquiz.site,https://www.mmquiz.site"
+    )
+    CORS_ALLOWED_ORIGIN_REGEX: str | None = (
+        r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+    )
+
+    OPENAPI_SWAGGER_PASSWORD: str
+    OPENAPI_SWAGGER_USERNAME: str = "admin"
+
+    @computed_field
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        origins = [
+            self.FRONTEND_ADMIN_URL,
+            self.FRONTEND_CLIENT_URL,
+            *self.CORS_ALLOWED_ORIGINS.split(","),
+        ]
+        return list(dict.fromkeys(origin.strip() for origin in origins if origin.strip()))
 
     @computed_field
     @property
