@@ -24,4 +24,4 @@ services:
     container_name: redis_app
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6381:6379"
