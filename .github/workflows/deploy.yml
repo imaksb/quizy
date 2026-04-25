@@ -33,7 +33,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'EOF'
             set -e
-            cd /quizy
+            cd /home/ubuntu/quizy
             git fetch origin main
             git checkout main
             git pull --ff-only origin main
