@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import Depends
 from redis.asyncio import Redis
 
-from app.databases.redis import RedisPool
+from app.databases.redis_server import RedisPool
 
 
 async def get_redis() -> Redis:
