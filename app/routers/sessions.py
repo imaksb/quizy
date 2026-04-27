@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.dependencies.database import SessionDep
-from app.dependencies.redis import RedisDep
+from app.dependencies.redis_server import RedisDep
 from app.dependencies.user_validation import CurrentAdminUser
 from app.schemas.quiz import (
     PlayerAnswerEvent,
