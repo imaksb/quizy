@@ -11,10 +11,6 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
-    volumes:
-      - ./:/app
-      - /app/.venv
-      - /app/__pycache__
     depends_on:
       - redis
     restart: unless-stopped
