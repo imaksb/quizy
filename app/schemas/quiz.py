@@ -192,6 +192,12 @@ class PlayerQuestion(BaseModel):
 class PlayerJoinEvent(BaseModel):
     type: str = "join"
     player_name: str = Field(min_length=1, max_length=255)
+    as_host_observer: bool = Field(
+        default=False,
+        description=(
+            "Admin dashboard observer only: not scored, excluded from answer quorum."
+        ),
+    )
 
 
 class PlayerReconnectEvent(BaseModel):
