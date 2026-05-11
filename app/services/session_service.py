@@ -326,10 +326,17 @@ class SessionService:
                 for participant_id, raw_answer in raw_answers.items()
             }
 
+        scored_rows: list[tuple[str, float]] = []
+        for participant_id, score in scores:
+            participant = participants.get(participant_id, {})
+            if participant.get("is_host"):
+                continue
+            scored_rows.append((participant_id, score))
+
         entries = []
         previous_score = None
         current_rank = 0
-        for index, (participant_id, score) in enumerate(scores, start=1):
+        for index, (participant_id, score) in enumerate(scored_rows, start=1):
             if previous_score is None or score < previous_score:
                 current_rank = index
             previous_score = score
@@ -440,15 +447,17 @@ class SessionService:
                 detail="Only lobby sessions can be started",
             )
 
-        active_participants = [
+        lobby_members = await self._participants(quiz_session.id)
+        players = [
             participant
-            for participant in await self._participants(quiz_session.id)
+            for participant in lobby_members
             if participant["status"] != "disconnected"
+            and not participant.get("is_host")
         ]
-        if not active_participants:
+        if not players:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="At least one participant is required to start session",
+                detail="At least one player is required to start session",
             )
 
         now = self._iso_now()
@@ -458,7 +467,11 @@ class SessionService:
         quiz_session.started_at = datetime.fromisoformat(now)
         quiz_session.current_question_index = int(first_question["order_index"])
 
-        for participant in active_participants:
+        for participant in lobby_members:
+            if participant["status"] == "disconnected":
+                continue
+            if participant.get("is_host"):
+                continue
             participant["status"] = "in_progress"
             await self._save_participant(quiz_session.id, participant)
 
@@ -468,6 +481,7 @@ class SessionService:
             {
                 "status": SessionStatus.LIVE.value,
                 "started_at": now,
+                "current_question_started_at": now,
                 "updated_at": now,
                 "current_question_index": first_question["order_index"],
             },
@@ -494,6 +508,7 @@ class SessionService:
         self,
         join_code: str,
         player_name: str,
+        as_host_observer: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         quiz_session = await self._get_session_by_join_code(join_code)
         state = await self._get_state(quiz_session.id)
@@ -503,6 +518,14 @@ class SessionService:
                 detail="Session is not accepting participants",
             )
 
+        if as_host_observer:
+            for existing in await self._participants(quiz_session.id):
+                if existing.get("is_host"):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Host observer already connected",
+                    )
+
         participant = {
             "id": str(uuid.uuid4()),
             "guest_name": player_name,
@@ -511,7 +534,7 @@ class SessionService:
             "score": 0,
             "joined_at": self._iso_now(),
             "finished_at": None,
-            "is_host": False,
+            "is_host": bool(as_host_observer),
         }
         await self._save_participant(quiz_session.id, participant)
         await self.redis.hset(
@@ -519,7 +542,11 @@ class SessionService:
             participant["guest_token"],
             participant["id"],
         )
-        await self.redis.zadd(self._scores_key(quiz_session.id), {participant["id"]: 0})
+        if not participant["is_host"]:
+            await self.redis.zadd(
+                self._scores_key(quiz_session.id),
+                {participant["id"]: 0},
+            )
 
         payload = await self._participant_joined_payload(
             quiz_session.id,
@@ -558,7 +585,10 @@ class SessionService:
         if state["status"] == SessionStatus.FINISHED.value:
             participant["status"] = "finished"
         elif state["status"] == SessionStatus.LIVE.value:
-            participant["status"] = "in_progress"
+            if participant.get("is_host"):
+                participant["status"] = "joined"
+            else:
+                participant["status"] = "in_progress"
         else:
             participant["status"] = "joined"
         await self._save_participant(quiz_session.id, participant)
@@ -735,6 +765,12 @@ class SessionService:
         self,
         session_id: str | UUID,
     ) -> list[dict[str, Any]]:
+        """
+        Emit a `leaderboard_updated` payload for the current question once every
+        active participant has answered. Advancing to the next question is now
+        an admin action (`advance_to_next_question`), so this method intentionally
+        no longer broadcasts `question_opened` / `session_finished`.
+        """
         state = await self._get_state(session_id)
         quiz_snapshot = await self._get_quiz_snapshot(session_id)
         current_question = self._current_question(quiz_snapshot, state)
@@ -757,6 +793,13 @@ class SessionService:
         if not active_participant_ids.issubset(answered_participant_ids):
             return []
 
+        already_emitted = await self._leaderboard_already_emitted_for_question(
+            session_id,
+            current_question["id"],
+        )
+        if already_emitted:
+            return []
+
         leaderboard_payload = await self._leaderboard_payload(
             session_id,
             state,
@@ -766,26 +809,95 @@ class SessionService:
             self._leaderboards_key(session_id),
             json.dumps(leaderboard_payload),
         )
+        return [leaderboard_payload]
+
+    async def _leaderboard_already_emitted_for_question(
+        self,
+        session_id: str | UUID,
+        question_id: str,
+    ) -> bool:
+        """True if the most recent stored leaderboard belongs to `question_id`."""
+        raw_leaderboard = await self.redis.lindex(
+            self._leaderboards_key(session_id),
+            -1,
+        )
+        if not raw_leaderboard:
+            return False
+        try:
+            payload = json.loads(raw_leaderboard)
+        except (TypeError, ValueError):
+            return False
+        return payload.get("question_id") == question_id
+
+    async def advance_to_next_question(
+        self,
+        session_id: str,
+        admin_user: UserDetail,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """
+        Admin-controlled advance to the next question.
+
+        - If the current question has not yet broadcast its leaderboard (e.g. the
+          host advances early before all players answered), emit it now so
+          spectators always see the leaderboard between questions.
+        - If there is a next question, broadcast `question_opened` for it.
+        - Otherwise, finish the session and broadcast `session_finished`.
+        """
+        quiz_session = await self._get_session(session_id)
+        self._require_owner(quiz_session, admin_user)
+        state = await self._get_state(quiz_session.id)
+
+        if state["status"] != SessionStatus.LIVE.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only live sessions can be advanced",
+            )
+
+        quiz_snapshot = await self._get_quiz_snapshot(quiz_session.id)
+        current_question = self._current_question(quiz_snapshot, state)
+        payloads: list[dict[str, Any]] = []
+
+        already_emitted = await self._leaderboard_already_emitted_for_question(
+            quiz_session.id,
+            current_question["id"],
+        )
+        if not already_emitted:
+            leaderboard_payload = await self._leaderboard_payload(
+                quiz_session.id,
+                state,
+                current_question,
+            )
+            await self.redis.rpush(
+                self._leaderboards_key(quiz_session.id),
+                json.dumps(leaderboard_payload),
+            )
+            payloads.append(leaderboard_payload)
 
         next_question = self._next_question(quiz_snapshot, current_question)
         if not next_question:
-            quiz_session = await self._get_session(session_id)
             detail, finished_payload = await self._finish_session(quiz_session)
-            return [leaderboard_payload, finished_payload]
+            payloads.append(finished_payload)
+            return detail, payloads
 
+        quiz_session.current_question_index = int(next_question["order_index"])
+        await self.session.commit()
+        opened_at = self._iso_now()
         state = await self._set_state_values(
-            session_id,
+            quiz_session.id,
             {
                 "current_question_index": next_question["order_index"],
-                "updated_at": self._iso_now(),
+                "current_question_started_at": opened_at,
+                "updated_at": opened_at,
             },
         )
         question_payload = await self._question_opened_payload(
-            session_id,
+            quiz_session.id,
             state,
             next_question,
         )
-        return [leaderboard_payload, question_payload]
+        payloads.append(question_payload)
+        detail = await self._session_detail_payload(quiz_session, state)
+        return detail, payloads
 
     async def _finish_session(
         self,
@@ -959,13 +1071,18 @@ class SessionService:
         payload = self._session_create_payload(quiz_session, state)
         quiz_snapshot = await self._get_quiz_snapshot(quiz_session.id)
         payload["participants"] = await self._participants_payload(quiz_session.id)
+        active_started_at = state.get("current_question_started_at") or state.get(
+            "started_at"
+        )
+        if active_started_at == "":
+            active_started_at = None
         payload["question_states"] = [
             {
                 "id": question["id"],
                 "question_id": question["id"],
                 "question_order_index": question["order_index"],
                 "status": self._question_status(question, state),
-                "started_at": state.get("started_at")
+                "started_at": active_started_at
                 if self._question_status(question, state) == "active"
                 else None,
                 "closed_at": None,

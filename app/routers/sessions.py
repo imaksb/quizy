@@ -85,6 +85,25 @@ async def start_session(
     return SessionDetail.model_validate(session_detail)
 
 
+@router.post("/sessions/{session_id}/next", response_model=SessionDetail)
+async def advance_session(
+    session_id: str,
+    session: SessionDep,
+    redis: RedisDep,
+    admin_user: CurrentAdminUser,
+) -> SessionDetail:
+    session_service = SessionService(session=session, redis=redis)
+    session_detail, payloads = await session_service.advance_to_next_question(
+        session_id=session_id,
+        admin_user=admin_user,
+    )
+    await _broadcast_payloads_with_leaderboard_delay(
+        session_id=session_detail["id"],
+        payloads=payloads,
+    )
+    return SessionDetail.model_validate(session_detail)
+
+
 @router.post("/sessions/{session_id}/end", response_model=SessionDetail)
 async def end_session(
     session_id: str,
@@ -214,6 +233,7 @@ async def _handle_initial_payload(
         return await session_service.join_lobby(
             join_code=join_code,
             player_name=join_event.player_name,
+            as_host_observer=join_event.as_host_observer,
         )
 
     if event_type == "reconnect":
