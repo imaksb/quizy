@@ -8,6 +8,9 @@ from app.schemas.quiz import (
     QuestionCreate,
     QuestionDetail,
     QuestionUpdate,
+    QuizAdminCreatedWithin,
+    QuizAdminListStatus,
+    QuizAdminSort,
     QuizCreate,
     QuizDetail,
     QuizListResponse,
@@ -36,9 +39,20 @@ async def get_quizzes(
     admin_user: CurrentAdminUser,  # noqa: ARG001
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
+    q: str | None = Query(default=None, max_length=500),
+    status: QuizAdminListStatus | None = Query(default=None),
+    created: QuizAdminCreatedWithin | None = Query(default=None),
+    sort: QuizAdminSort | None = Query(default=None),
 ) -> QuizListResponse:
     quiz_service = QuizService(session=session)
-    return await quiz_service.get_quizzes(page=page, page_size=page_size)
+    return await quiz_service.get_quizzes(
+        page=page,
+        page_size=page_size,
+        q=q,
+        status=status,
+        created=created,
+        sort=sort,
+    )
 
 
 @router.get("/{quiz_id}", response_model=QuizWithQuestionsDetail)
