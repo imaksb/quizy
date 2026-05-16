@@ -13,6 +13,9 @@ from app.schemas.quiz import (
     QuestionCreate,
     QuestionUpdate,
     QuestionType,
+    QuizAdminCreatedWithin,
+    QuizAdminListStatus,
+    QuizAdminSort,
     QuizCreate,
     QuizListResponse,
     QuizUpdate,
@@ -144,10 +147,27 @@ class QuizService:
         payload["owner_id"] = owner.id
         return await self.quiz_repository.create_one(payload)
 
-    async def get_quizzes(self, page: int, page_size: int) -> QuizListResponse:
-        items, total = await self.quiz_repository.get_many(
+    async def get_quizzes(
+        self,
+        page: int,
+        page_size: int,
+        *,
+        q: str | None = None,
+        status: QuizAdminListStatus | None = None,
+        created: QuizAdminCreatedWithin | None = None,
+        sort: QuizAdminSort | None = None,
+    ) -> QuizListResponse:
+        created_raw: str | None = None
+        if created is not None and created != QuizAdminCreatedWithin.ALL:
+            created_raw = created.value
+
+        items, total = await self.quiz_repository.search_quizzes(
             page=page,
             page_size=page_size,
+            q=q,
+            status_filter=status.value if status else None,
+            created_within=created_raw,
+            sort=sort.value if sort else None,
         )
         return QuizListResponse(
             items=list(items),

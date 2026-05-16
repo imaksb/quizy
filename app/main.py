@@ -1,18 +1,32 @@
 import secrets
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 
 from app.core.settings import settings
-from fastapi.middleware.cors import CORSMiddleware
+from app.routers import auth, quiz_images, quizzes, sessions, users, utils
 
-from app.routers import auth, quizzes, users, utils, sessions
-
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 swagger_security = HTTPBasic()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Path(settings.QUIZ_UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    yield
+
+
+app = FastAPI(
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
+)
 
 
 def verify_swagger_access(
@@ -58,6 +72,7 @@ async def redoc(_: None = Depends(verify_swagger_access)):
         title=f"{app.title} - ReDoc",
     )
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
@@ -66,8 +81,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(auth.router)
 app.include_router(quizzes.router)
 app.include_router(sessions.router)
 app.include_router(users.router)
 app.include_router(utils.router)
+app.include_router(quiz_images.router)
+
+app.mount(
+    settings.quiz_uploads_url_base,
+    StaticFiles(directory=settings.QUIZ_UPLOAD_DIR),
+    name="quiz_uploads",
+)

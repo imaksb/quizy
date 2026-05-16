@@ -44,6 +44,26 @@ class Settings(BaseSettings):
     OPENAPI_SWAGGER_PASSWORD: str
     OPENAPI_SWAGGER_USERNAME: str = "admin"
 
+    # Question images: streamed to disk; served via StaticFiles at QUIZ_UPLOAD_URL_PREFIX
+    QUIZ_UPLOAD_DIR: str = "./uploads"
+    """Absolute or relative directory for quiz question images."""
+
+    QUIZ_UPLOAD_URL_PREFIX: str = "/uploads"
+    """URL path prefix matching StaticFiles mount (leading slash OK)."""
+
+    QUIZ_UPLOAD_MAX_BYTES: int = 6 * 1024 * 1024
+    """Max decoded bytes per upload (read in chunks; keeps RAM low on small servers)."""
+
+    @computed_field
+    @property
+    def quiz_uploads_url_base(self) -> str:
+        """Normalized URL prefix for stored paths and StaticFiles mount (e.g. `/uploads`)."""
+        raw = self.QUIZ_UPLOAD_URL_PREFIX.strip()
+        if not raw.startswith("/"):
+            raw = f"/{raw}"
+        base = raw.rstrip("/")
+        return base if base else "/uploads"
+
     @computed_field
     @property
     def cors_allowed_origins(self) -> list[str]:

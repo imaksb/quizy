@@ -33,6 +33,26 @@ class SessionQuestionStatus(enum.Enum):
     CLOSED = "closed"
 
 
+class QuizAdminListStatus(str, enum.Enum):
+    LIVE = "live"
+    PUBLISHED = "published"
+    DRAFT = "draft"
+
+
+class QuizAdminCreatedWithin(str, enum.Enum):
+    ALL = "all"
+    DAYS_7 = "7d"
+    DAYS_30 = "30d"
+    YEAR_1 = "1y"
+
+
+class QuizAdminSort(str, enum.Enum):
+    CREATED_DESC = "created_desc"
+    CREATED_ASC = "created_asc"
+    TITLE_ASC = "title_asc"
+    TITLE_DESC = "title_desc"
+
+
 class QuizBase(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1, max_length=1000)

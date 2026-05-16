@@ -11,13 +11,15 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      QUIZ_UPLOAD_DIR: /app/uploads
     volumes:
       - ./:/app
+      - ./uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
-    depends_on:
-      - redis
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   db:
