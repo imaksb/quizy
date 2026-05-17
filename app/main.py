@@ -99,7 +99,7 @@ async def websocket_docs(_: None = Depends(verify_swagger_access)):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
-    allow_origin_regex=settings.CORS_ALLOWED_ORIGIN_REGEX,
+    allow_origin_regex=settings.cors_allowed_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

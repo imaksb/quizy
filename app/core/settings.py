@@ -34,12 +34,8 @@ class Settings(BaseSettings):
 
     FRONTEND_ADMIN_URL: str
     FRONTEND_CLIENT_URL: str
-    CORS_ALLOWED_ORIGINS: str = (
-        "https://mmquiz.site,https://www.mmquiz.site"
-    )
-    CORS_ALLOWED_ORIGIN_REGEX: str | None = (
-        r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
-    )
+    CORS_ALLOWED_ORIGINS: str = "https://mmquiz.site,https://www.mmquiz.site"
+    CORS_ALLOWED_ORIGIN_REGEX: str | None = None
 
     OPENAPI_SWAGGER_PASSWORD: str
     OPENAPI_SWAGGER_USERNAME: str = "admin"
@@ -53,6 +49,10 @@ class Settings(BaseSettings):
 
     QUIZ_UPLOAD_MAX_BYTES: int = 6 * 1024 * 1024
     """Max decoded bytes per upload (read in chunks; keeps RAM low on small servers)."""
+
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_REQUESTS: int = 60
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     @computed_field
     @property
@@ -72,7 +72,18 @@ class Settings(BaseSettings):
             self.FRONTEND_CLIENT_URL,
             *self.CORS_ALLOWED_ORIGINS.split(","),
         ]
-        return list(dict.fromkeys(origin.strip() for origin in origins if origin.strip()))
+        return list(
+            dict.fromkeys(origin.strip() for origin in origins if origin.strip())
+        )
+
+    @computed_field
+    @property
+    def cors_allowed_origin_regex(self) -> str | None:
+        if self.CORS_ALLOWED_ORIGIN_REGEX:
+            return self.CORS_ALLOWED_ORIGIN_REGEX
+        if self.ENVIRONMENT == "development":
+            return r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+        return None
 
     @computed_field
     @property
@@ -93,4 +104,4 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
 
-settings = Settings() # noqa
+settings = Settings()  # noqa

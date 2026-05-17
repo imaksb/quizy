@@ -1,11 +1,14 @@
 import secrets
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Literal
+from uuid import uuid4
+
 import jwt
 from argon2 import PasswordHasher
 from fastapi import HTTPException
 from pydantic import ValidationError
 from starlette import status
-from uuid import uuid4
+
 from app.core.settings import settings
 from app.schemas.auth import JWTPayload, JWTToken, JWTTokens
 from app.schemas.user import UserRole
@@ -22,9 +25,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_hash_password(password: str) -> str:
     return context.hash(password)
 
-def create_jwt_token(email: str, role: UserRole, token_type: str = "bearer") -> JWTToken:
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    expire = datetime.now() + expires_delta
+
+def create_jwt_token(
+    email: str,
+    role: UserRole,
+    token_type: Literal["access", "refresh"] = "access",
+) -> JWTToken:
+    expire_minutes = (
+        settings.REFRESH_TOKEN_EXPIRE_MINUTES
+        if token_type == "refresh"
+        else settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+    expire = datetime.now(UTC) + timedelta(minutes=expire_minutes)
 
     payload = JWTPayload(
         role=role,
@@ -35,12 +47,13 @@ def create_jwt_token(email: str, role: UserRole, token_type: str = "bearer") -> 
     )
 
     payload_dict = payload.model_dump()
-    payload_dict['role'] = role.value
+    payload_dict["role"] = role.value
 
     encoded_jwt = jwt.encode(
-    payload_dict, settings.AUTH_SECRET_KEY, algorithm=ALGORITHM
+        payload_dict,
+        settings.AUTH_SECRET_KEY,
+        algorithm=ALGORITHM,
     )
-
 
     return JWTToken(access_token=encoded_jwt, token_type=token_type)
 
@@ -68,15 +81,12 @@ def decode_auth_jwt_token(
     secret_key: str = settings.AUTH_SECRET_KEY,
 ) -> JWTPayload:
     try:
-        payload = jwt.decode(
-            token, secret_key, algorithms=[ALGORITHM], leeway=60
-        )
-        payload.setdefault("token_type", "access")
-        payload.setdefault("jti", "")
+        payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM], leeway=60)
 
         return JWTPayload(**payload)
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError, ValidationError):
         raise InvalidCredentials()
+
 
 def generate_csrf_token() -> str:
     return secrets.token_urlsafe(32)

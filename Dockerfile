@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y \
     make \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
-RUN apt-get update && apt-get install -y git && apt-get clean
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -29,9 +28,17 @@ RUN uv sync --frozen --no-dev --python 3.12
 
 # Copy application code
 COPY . .
+RUN mkdir -p /app/uploads \
+    && useradd --create-home --shell /usr/sbin/nologin appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
 
 # Expose port
 EXPOSE 8000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+
 # Run the application
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

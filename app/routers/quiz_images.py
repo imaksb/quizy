@@ -1,10 +1,12 @@
-import os
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+
 from app.core.settings import settings
 from app.dependencies.user_validation import CurrentAdminUser
 from app.schemas.upload import QuizImageUploadResponse
+from app.utils.rate_limit import rate_limit
 
 router = APIRouter(prefix="/quiz-images", tags=["quiz-images"])
 
@@ -13,6 +15,7 @@ CHUNK_SIZE = 256 * 1024
 WEBP_RIFF = b"RIFF"
 WEBP_MAGIC = b"WEBP"
 
+
 @router.post(
     "",
     response_model=QuizImageUploadResponse,
@@ -20,6 +23,7 @@ WEBP_MAGIC = b"WEBP"
 )
 async def upload_quiz_image(
     _auth: CurrentAdminUser,
+    _: None = Depends(rate_limit("quiz-images:upload", limit=30)),
     file: UploadFile = File(...),
 ) -> QuizImageUploadResponse:
     del _auth
@@ -32,23 +36,25 @@ async def upload_quiz_image(
         )
 
     content_type = (file.content_type or "").lower()
-    if content_type and not (
-        content_type in ("image/webp", "application/octet-stream")
-        or content_type.startswith("image/")
-    ):
+    if content_type and content_type not in ("image/webp", "application/octet-stream"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Content-Type must be an image type (WebP expected)",
+            detail="Content-Type must be image/webp",
         )
 
     try:
         first_chunk = await file.read(CHUNK_SIZE)
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Error reading file stream"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Error reading file stream",
         ) from e
 
-    if len(first_chunk) < 12 or first_chunk[0:4] != WEBP_RIFF or first_chunk[8:12] != WEBP_MAGIC:
+    if (
+        len(first_chunk) < 12
+        or first_chunk[0:4] != WEBP_RIFF
+        or first_chunk[8:12] != WEBP_MAGIC
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid file data: Must be a valid WebP image",
@@ -69,8 +75,7 @@ async def upload_quiz_image(
     try:
         with dest.open("wb") as buffer:
             buffer.write(first_chunk)
-            
-            # Докачуємо решту
+
             while True:
                 chunk = await file.read(CHUNK_SIZE)
                 if not chunk:
@@ -82,10 +87,16 @@ async def upload_quiz_image(
                         detail="File too large",
                     )
                 buffer.write(chunk)
-                
-    except Exception():
+
+    except HTTPException:
         dest.unlink(missing_ok=True)
         raise
+    except OSError as e:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to store uploaded image",
+        ) from e
 
     prefix = settings.quiz_uploads_url_base.strip("/")
     url_path = f"/{prefix}/{unique}" if prefix else f"/{unique}"

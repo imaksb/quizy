@@ -1,23 +1,23 @@
-from fastapi.params import Depends
 import httpx
 from fastapi import HTTPException
+from fastapi.params import Depends
 from jwt import InvalidTokenError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.google_oauth import GOOGLE_TOKEN_URL, GOOGLE_USERINFO_URL
-from app.core.security import get_pair_tokens, get_new_access_token_with_refresh
+from app.core.security import (
+    decode_auth_jwt_token,
+    get_new_access_token_with_refresh,
+    get_pair_tokens,
+)
 from app.core.settings import settings
 from app.databases.models import User
 from app.databases.repositories.user_repository import UserRepository
-
 from app.dependencies.database import get_session
 from app.dependencies.token import TokenDep
 from app.schemas.auth import JWTTokens
-from app.schemas.user import UserDetail, UserInfo, UserRole
-from app.core.security import decode_auth_jwt_token
-
-from app.schemas.auth import AuthState, OriginType
+from app.schemas.user import UserDetail, UserInfo
 from app.utils.exceptions import InvalidCredentials
 
 
@@ -44,11 +44,14 @@ class AuthService:
             )
 
             if token_resp.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to fetch access token")
+                raise HTTPException(
+                    status_code=400, detail="Failed to fetch access token"
+                )
 
             token_data = token_resp.json()
-            print("token_data", token_data)
             access_token = token_data.get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=400, detail="Missing access token")
 
             return access_token
 
@@ -66,30 +69,6 @@ class AuthService:
             userinfo = userinfo_resp.json()
             return UserInfo.model_validate(userinfo)
 
-    @staticmethod
-    def _issue_redirect(state: str, role: UserRole):
-        auth_state = AuthState.decode(state)
-        # redirect_url = None
-
-        match auth_state.origin:
-            case OriginType.ADMIN:
-                if role != UserRole.ADMIN:
-                    return HTTPException(status_code=401, detail="Something pishlo ne tak.")
-                # redirect_url = settings.FRONTEND_ADMIN_URL
-            case OriginType.GAME:
-                if not auth_state.game_id:
-                    raise HTTPException(status_code=400, detail="Missing game_id for game origin")
-                # redirect_url = f"{settings.FRONTEND_CLIENT_URL}/games/{auth_state.game_id}"
-            case _:
-                raise HTTPException(status_code=400, detail="Invalid origin type")
-
-        # response = RedirectResponse(url=redirect_url)
-
-        # response.set_cookie("ACCESS_TOKEN", tokens.access_token)
-        # response.set_cookie("REFRESH_TOKEN", tokens.refresh_token)
-        #
-        # return response
-
     async def login(self, code: str) -> JWTTokens:
         access_token = await self._get_user_access_token(code)
         google_payload = await self._get_userinfo_by_access_token(access_token)
@@ -103,33 +82,37 @@ class AuthService:
                 user_data,
             )
 
-        tokens = get_pair_tokens(email=user.email, role=user.role)
-        # self._issue_redirect(role=user.role)
-        return tokens
+        return get_pair_tokens(email=user.email, role=user.role)
 
     @staticmethod
     async def get_current_user(
-        token: TokenDep, # noqa
+        token: TokenDep,  # noqa
         session: AsyncSession = Depends(get_session),
     ) -> UserDetail:
         try:
             payload = decode_auth_jwt_token(token.credentials)
         except (InvalidTokenError, ValidationError) as e:
             raise InvalidCredentials() from e
-    
+
+        if payload.token_type != "access":
+            raise InvalidCredentials()
+
         user_service = AuthService(session=session)
         user = await user_service._get_user_by_email(email=payload.email)
-    
-        if not user:
+
+        if not user or not user.is_active:
             raise InvalidCredentials()
-    
+
         return UserDetail.model_validate(user)
 
-    @staticmethod
     async def refresh(
+        self,
         refresh_token: str,
     ) -> JWTTokens:
         refresh_payload = decode_auth_jwt_token(refresh_token, settings.AUTH_SECRET_KEY)
+        user = await self._get_user_by_email(email=refresh_payload.email)
+        if not user or not user.is_active:
+            raise InvalidCredentials()
         tokens = get_new_access_token_with_refresh(refresh_payload)
 
         return tokens
