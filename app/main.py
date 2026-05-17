@@ -11,7 +11,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
 from app.core.settings import settings
-from app.routers import auth, quiz_images, quizzes, sessions, users, utils
+from app.routers import ai, auth, quiz_images, quizzes, sessions, users, utils
 
 swagger_security = HTTPBasic()
 DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
@@ -106,6 +106,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(ai.router)
 app.include_router(quizzes.router)
 app.include_router(sessions.router)
 app.include_router(users.router)

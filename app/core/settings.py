@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     OPENAPI_SWAGGER_PASSWORD: str
     OPENAPI_SWAGGER_USERNAME: str = "admin"
 
+    AI_COMPLETIONS_URL: str = ""
+    AI_API_KEY: str = ""
+
     # Question images: streamed to disk; served via StaticFiles at QUIZ_UPLOAD_URL_PREFIX
     QUIZ_UPLOAD_DIR: str = "./uploads"
     """Absolute or relative directory for quiz question images."""

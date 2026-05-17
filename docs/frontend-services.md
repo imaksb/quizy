@@ -96,13 +96,15 @@ Response:
   "picture": "https://example.com/avatar.png",
   "email_verified": true,
   "id": "48c77e70-0d82-43fe-9326-c88aef4376d0",
-  "role": "admin"
+  "role": "admin",
+  "is_ai_available": true
 }
 ```
 
 Frontend behavior:
 
 - If `role !== "admin"`, block access to the admin UI.
+- If `is_ai_available !== true`, hide or disable AI question generation UI.
 - Show a clear "admin access required" screen.
 
 Important: the backend creates new Google users with the default role from the database model. Admin access requires the user role to be `admin` in the database.
@@ -115,12 +117,13 @@ Recommended frontend flow:
 2. Frontend calls `/users/me`.
 3. Admin creates a quiz.
 4. Admin adds questions with answer options.
-5. Admin optionally publishes the quiz.
-6. Admin creates a live session from the quiz.
-7. Admin opens the session lobby.
-8. Players join using `join_code`.
-9. Admin starts the session.
-10. Admin can end the session.
+5. Admin may generate questions with AI if `is_ai_available` is true.
+6. Admin optionally publishes the quiz.
+7. Admin creates a live session from the quiz.
+8. Admin opens the session lobby.
+9. Players join using `join_code`.
+10. Admin starts the session.
+11. Admin can end the session.
 
 During live gameplay, runtime state is stored in Redis:
 
@@ -310,8 +313,13 @@ Validation:
 - `question_type` must be `single_answer` or `multiple_answer`.
 - At least one answer must be correct.
 - `single_answer` must have exactly one correct answer.
-- `order_index` must be unique within the quiz.
+- `order_index` is treated as a position in the quiz.
+- On create, `order_index` must be between `0` and the current question count.
+- On update, `order_index` must be between `0` and the last question index.
+- The backend shifts affected questions and stores sequential indexes `0..n-1`.
 - If `answer_time` is `null`, backend uses `quiz.default_question_time`.
+- Question and answer changes are blocked while the quiz has a session in
+  `created`, `lobby`, `live`, or `paused`.
 
 Response:
 
@@ -370,6 +378,9 @@ DELETE /quizzes/{quiz_id}/questions/{question_id}
 Authorization: Bearer <access_token>
 ```
 
+After deletion, the backend renumbers the remaining questions so their
+`order_index` values stay sequential.
+
 ### Update Answer Option
 
 ```http
@@ -400,6 +411,100 @@ Authorization: Bearer <access_token>
 ```
 
 Validation keeps question correctness valid after deletion.
+
+## AI Question Generation
+
+AI generation adds questions to an existing quiz.
+
+Requirements:
+
+- The request user must be authenticated.
+- The request user must have `role: "admin"`.
+- The request user must have `is_ai_available: true`.
+- The quiz must not have a session in `created`, `lobby`, `live`, or `paused`.
+- Redis must be available for per-user rate limiting.
+
+The backend allows at most 5 AI generation attempts per user per hour.
+
+### Generate Questions
+
+```http
+POST /ai/quizzes/{quiz_id}/questions
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{
+  "user_prompt": "Generate beginner-friendly geography questions about Europe.",
+  "questions_count": 5
+}
+```
+
+Validation:
+
+- `user_prompt`: non-empty string, max 4000 characters.
+- `questions_count`: integer from `1` to `10`; defaults to `5`.
+
+Backend behavior:
+
+- Loads the quiz title, description, default question time, and existing questions.
+- Sends a strict system prompt and structured user context to the configured AI
+  completions service.
+- Calls `AI_COMPLETIONS_URL` with header `x-api-key: <AI_API_KEY>`.
+- Validates the AI response as quiz questions before saving anything.
+- Appends generated questions after existing questions.
+- Assigns final sequential `order_index` values in the database.
+
+Response:
+
+```json
+{
+  "quiz_id": "9ab8f59d-4e8b-4303-944d-46f874ddff13",
+  "questions": [
+    {
+      "question_text": "Which city is the capital of France?",
+      "question_type": "single_answer",
+      "order_index": 2,
+      "answer_time": 30,
+      "points_for_correct_answer": 1,
+      "points_for_incorrect_answer": 0,
+      "hint": null,
+      "image_url": null,
+      "id": "235a834e-d8cf-4320-8d8d-82d8f97e623b",
+      "quiz_id": "9ab8f59d-4e8b-4303-944d-46f874ddff13",
+      "created_at": "2026-05-17T10:05:00",
+      "updated_at": "2026-05-17T10:05:00",
+      "answers": [
+        {
+          "answer_text": "Paris",
+          "is_correct": true,
+          "id": "d93e1e62-6a49-4407-a209-710ff0ac1ea5",
+          "created_at": "2026-05-17T10:05:00"
+        },
+        {
+          "answer_text": "Berlin",
+          "is_correct": false,
+          "id": "53918332-4297-4dac-ab45-0613d9705f5a",
+          "created_at": "2026-05-17T10:05:00"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Frontend behavior:
+
+- Show the AI generation control only when `/users/me` returns
+  `is_ai_available: true`.
+- Let the admin choose or type a generation instruction and a count from 1 to 10.
+- After success, merge or refetch the quiz questions using the returned saved
+  questions.
+- For `429`, show an hourly limit message.
+- For `502`, show that AI generation failed and let the user retry later.
 
 ## Live Session Endpoints
 
@@ -609,8 +714,11 @@ Common HTTP responses:
 
 - `400`: invalid state transition or validation error.
 - `401`: missing, invalid, or expired token.
-- `403`: user is not admin, or admin does not own the session.
+- `403`: user is not admin, admin does not own the session, or AI generation is
+  not available for the user.
 - `404`: quiz, question, answer, or session not found.
+- `429`: rate limit exceeded.
+- `502`: upstream AI completions service failed or returned invalid output.
 
 Recommended frontend behavior:
 
@@ -693,6 +801,7 @@ Recommended modules:
 - `authService`: login redirect, cookie-backed refresh, logout, current user.
 - `quizService`: create/list/get/update/delete quiz.
 - `questionService`: create/update/delete questions and answers.
+- `aiService`: generate questions for an existing quiz.
 - `sessionService`: create/open/start/next/end/get session.
 - `gameSocketService`: player WebSocket connection and event handling.
 - `leaderboardService` or UI slice: render `leaderboard_updated` and latest admin `leaderboard`.
@@ -750,7 +859,24 @@ await apiRequest<QuestionDetail>(`/quizzes/${quiz.id}/questions`, {
 });
 ```
 
-5. Create and open session:
+5. Generate questions with AI when available:
+
+```ts
+if (me.is_ai_available) {
+  await apiRequest<AIQuestionGenerationResponse>(
+    `/ai/quizzes/${quiz.id}/questions`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        user_prompt: "Generate five beginner-friendly general knowledge questions",
+        questions_count: 5
+      })
+    }
+  );
+}
+```
+
+6. Create and open session:
 
 ```ts
 const session = await apiRequest<SessionDetail>(`/quizzes/${quiz.id}/sessions`, {
@@ -762,13 +888,13 @@ await apiRequest<SessionDetail>(`/sessions/${session.id}/open`, {
 });
 ```
 
-6. Display join code:
+7. Display join code:
 
 ```ts
 showJoinCode(session.join_code);
 ```
 
-7. Start session after players join:
+8. Start session after players join:
 
 ```ts
 await apiRequest<SessionDetail>(`/sessions/${session.id}/start`, {
@@ -776,7 +902,7 @@ await apiRequest<SessionDetail>(`/sessions/${session.id}/start`, {
 });
 ```
 
-8. End session when needed:
+9. End session when needed:
 
 ```ts
 await apiRequest<SessionDetail>(`/sessions/${session.id}/end`, {
@@ -793,3 +919,5 @@ await apiRequest<SessionDetail>(`/sessions/${session.id}/end`, {
 - `access_link_token` is returned by session creation but is not currently required by the player WebSocket endpoint.
 - `is_published` exists on quizzes, but live session creation currently only requires at least one question.
 - Redis is required for live sessions. If Redis is down, live-session actions will fail instead of falling back to PostgreSQL runtime writes.
+- Redis is also required for AI generation rate limiting.
+- AI question generation requires `AI_COMPLETIONS_URL` and `AI_API_KEY`.

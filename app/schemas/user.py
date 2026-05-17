@@ -19,3 +19,4 @@ class UserDetail(UserInfo):
 
     id: UUID
     role: UserRole
+    is_ai_available: bool

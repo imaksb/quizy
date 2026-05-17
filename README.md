@@ -37,7 +37,9 @@ uv run pytest
 
 - Use `ENVIRONMENT=production`.
 - Set strong values for `AUTH_SECRET_KEY`, `OPENAPI_SWAGGER_PASSWORD`,
-  `POSTGRES_PASSWORD`, and Google OAuth secrets.
+  `POSTGRES_PASSWORD`, `AI_API_KEY`, and Google OAuth secrets.
+- Set `AI_COMPLETIONS_URL` and `AI_API_KEY` to enable AI question generation.
+  The backend sends `x-api-key: <AI_API_KEY>` to the completions service.
 - Keep `CORS_ALLOWED_ORIGIN_REGEX` empty in production unless a reviewed
   domain regex is required. Localhost CORS regex is only enabled by default
   in development.

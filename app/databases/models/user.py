@@ -24,6 +24,9 @@ class User(Base, TableNameMixin, TimeoutMixin):
         Enum(UserRole), nullable=False, default=UserRole.USER
     )
     is_active: Mapped[bool] = mapped_column(BOOLEAN, default=True)
+    is_ai_available: Mapped[bool] = mapped_column(
+        BOOLEAN, default=False, nullable=False
+    )
 
     quizzes: Mapped[list["Quiz"]] = relationship(back_populates="owner")
     owned_quiz_sessions: Mapped[list["QuizSession"]] = relationship(
