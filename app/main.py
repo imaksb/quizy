@@ -83,6 +83,14 @@ async def asyncapi_yaml(_: None = Depends(verify_swagger_access)):
     )
 
 
+@app.get("/docs/ws/asyncapi.yaml", include_in_schema=False)
+async def websocket_docs_asyncapi_yaml(_: None = Depends(verify_swagger_access)):
+    return FileResponse(
+        DOCS_DIR / "asyncapi.yaml",
+        media_type="application/yaml",
+    )
+
+
 @app.get("/docs/ws", include_in_schema=False)
 async def websocket_docs(_: None = Depends(verify_swagger_access)):
     return FileResponse(DOCS_DIR / "asyncapi.html", media_type="text/html")
