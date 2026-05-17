@@ -420,7 +420,7 @@ components:
               type: string
               description: Secret reconnect token. Present only in private join/reconnect responses.
     Participant:
-      oneOf:
+      anyOf:
         - $ref: '#/components/schemas/PublicParticipant'
         - $ref: '#/components/schemas/PrivateParticipant'
     PlayerAnswerOption:
@@ -573,12 +573,14 @@ components:
         participant:
           $ref: '#/components/schemas/PrivateParticipant'
         question:
+          type: object
           nullable: true
           allOf:
             - $ref: '#/components/schemas/PlayerQuestion'
         has_answered:
           type: boolean
         leaderboard:
+          type: object
           nullable: true
           allOf:
             - $ref: '#/components/schemas/LeaderboardUpdatedEvent'
