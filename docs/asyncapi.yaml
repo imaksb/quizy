@@ -562,18 +562,6 @@ components:
             $ref: '#/components/schemas/PlayerAnswerOption'
           description: Correct-answer flags are intentionally omitted from WebSocket question payloads.
 
-    NullablePlayerQuestion:
-      oneOf:
-        - $ref: '#/components/schemas/PlayerQuestion'
-        - type: object
-          nullable: true
-
-    NullableLeaderboardUpdatedEvent:
-      oneOf:
-        - $ref: '#/components/schemas/LeaderboardUpdatedEvent'
-        - type: object
-          nullable: true
-
     LeaderboardEntry:
       type: object
       additionalProperties: false
@@ -648,11 +636,16 @@ components:
         participant:
           $ref: '#/components/schemas/PrivateParticipant'
         question:
-          $ref: '#/components/schemas/NullablePlayerQuestion'
+          oneOf:
+            - $ref: '#/components/schemas/PlayerQuestion'
+            - type: 'null'
         has_answered:
           type: boolean
         leaderboard:
-          $ref: '#/components/schemas/NullableLeaderboardUpdatedEvent'
+          oneOf:
+            - $ref: '#/components/schemas/LeaderboardUpdatedEvent'
+            - type: 'null'
+          description: Most recent leaderboard payload, if one has already been emitted.
 
     QuestionOpenedEvent:
       type: object
