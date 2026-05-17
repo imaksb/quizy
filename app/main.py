@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +14,7 @@ from app.core.settings import settings
 from app.routers import auth, quiz_images, quizzes, sessions, users, utils
 
 swagger_security = HTTPBasic()
+DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 
 
 @asynccontextmanager
@@ -71,6 +73,19 @@ async def redoc(_: None = Depends(verify_swagger_access)):
         openapi_url="/openapi.json",
         title=f"{app.title} - ReDoc",
     )
+
+
+@app.get("/asyncapi.yaml", include_in_schema=False)
+async def asyncapi_yaml(_: None = Depends(verify_swagger_access)):
+    return FileResponse(
+        DOCS_DIR / "asyncapi.yaml",
+        media_type="application/yaml",
+    )
+
+
+@app.get("/docs/ws", include_in_schema=False)
+async def websocket_docs(_: None = Depends(verify_swagger_access)):
+    return FileResponse(DOCS_DIR / "asyncapi.html", media_type="text/html")
 
 
 app.add_middleware(
