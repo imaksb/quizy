@@ -2,7 +2,7 @@ import json
 import secrets
 import string
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -28,9 +28,9 @@ from app.schemas.user import UserDetail
 from app.utils.exceptions import DBHTTPException
 from app.utils.logger import logger
 
-
 RUNTIME_TTL_SECONDS = 60 * 60 * 24
 LEADERBOARD_DELAY_SECONDS = 5
+ANSWER_GRACE_PERIOD_SECONDS = 5
 
 
 class SessionService:
@@ -651,6 +651,7 @@ class SessionService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Question is not active",
             )
+        self._require_answer_window_open(current_question, state)
 
         answer_key = self._answers_key(session_id, current_question["id"])
         existing_answer = await self.redis.hget(answer_key, str(participant_id))
@@ -713,7 +714,7 @@ class SessionService:
             "type": "snapshot",
             "session": self._session_payload(state),
             "participant": participant,
-            "question": self._player_question(question) if question else None,
+            "question": self._player_question(question, state) if question else None,
             "has_answered": has_answered,
             "leaderboard": leaderboard,
         }
@@ -760,6 +761,30 @@ class SessionService:
             if is_correct
             else question["points_for_incorrect_answer"],
         }
+
+    @staticmethod
+    def _require_answer_window_open(
+        question: dict[str, Any],
+        state: dict[str, str],
+    ) -> None:
+        started_at_value = state.get("current_question_started_at") or state.get(
+            "started_at"
+        )
+        if not started_at_value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Question has not started",
+            )
+
+        started_at = datetime.fromisoformat(started_at_value)
+        answer_deadline = started_at + timedelta(
+            seconds=int(question["answer_time"]) + ANSWER_GRACE_PERIOD_SECONDS
+        )
+        if SessionService._now() > answer_deadline:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Question answer time has expired",
+            )
 
     async def _completion_payloads_if_needed(
         self,
@@ -1024,8 +1049,11 @@ class SessionService:
         )
 
     @staticmethod
-    def _player_question(question: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _player_question(
+        question: dict[str, Any],
+        state: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        player_question = {
             key: value
             for key, value in question.items()
             if key != "answers"
@@ -1038,6 +1066,39 @@ class SessionService:
                 for answer in question["answers"]
             ]
         }
+        if state:
+            player_question["answer_window"] = SessionService._answer_window_payload(
+                question,
+                state,
+            )
+        return player_question
+
+    @staticmethod
+    def _answer_window_payload(
+        question: dict[str, Any],
+        state: dict[str, str],
+    ) -> dict[str, Any]:
+        started_at_value = state.get("current_question_started_at") or state.get(
+            "started_at"
+        )
+        answer_time_seconds = int(question["answer_time"])
+        payload: dict[str, Any] = {
+            "started_at": started_at_value or None,
+            "answer_time_seconds": answer_time_seconds,
+            "grace_period_seconds": ANSWER_GRACE_PERIOD_SECONDS,
+            "ends_at": None,
+            "accepts_until": None,
+            "server_time": SessionService._iso_now(),
+        }
+        if not started_at_value:
+            return payload
+
+        started_at = datetime.fromisoformat(started_at_value)
+        ends_at = started_at + timedelta(seconds=answer_time_seconds)
+        accepts_until = ends_at + timedelta(seconds=ANSWER_GRACE_PERIOD_SECONDS)
+        payload["ends_at"] = ends_at.isoformat()
+        payload["accepts_until"] = accepts_until.isoformat()
+        return payload
 
     @staticmethod
     def _session_payload(state: dict[str, str]) -> dict[str, Any]:
@@ -1164,7 +1225,7 @@ class SessionService:
         return {
             "type": "question_opened",
             "session": self._session_payload(state),
-            "question": self._player_question(question),
+            "question": self._player_question(question, state),
             "participants": await self._participants_payload(session_id),
         }
 

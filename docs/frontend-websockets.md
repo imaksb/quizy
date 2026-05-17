@@ -21,7 +21,13 @@ Admin controls the session through REST endpoints:
    - Connected players receive the first question through WebSocket.
    - Runtime player state, answers, scores, and leaderboard are stored in Redis.
 
-4. `POST /sessions/{session_id}/end`
+4. `POST /sessions/{session_id}/next`
+   - Advances a live session to the next question.
+   - If needed, connected players receive `leaderboard_updated` first.
+   - Then players receive either `question_opened` for the next question or
+     `session_finished` when the quiz is complete.
+
+5. `POST /sessions/{session_id}/end`
    - Moves the session to `finished`.
    - Connected players receive the final session state.
    - Final normalized session results are saved to PostgreSQL.
@@ -151,6 +157,14 @@ The server responds with a snapshot:
     "points_for_incorrect_answer": 0,
     "hint": null,
     "image_url": null,
+    "answer_window": {
+      "started_at": "2026-04-18T10:30:00",
+      "answer_time_seconds": 30,
+      "grace_period_seconds": 5,
+      "ends_at": "2026-04-18T10:30:30",
+      "accepts_until": "2026-04-18T10:30:35",
+      "server_time": "2026-04-18T10:30:03"
+    },
     "answers": [
       {
         "id": "d93e1e62-6a49-4407-a209-710ff0ac1ea5",
@@ -293,6 +307,14 @@ Sent when the session starts or advances to the next question.
     "points_for_incorrect_answer": 0,
     "hint": null,
     "image_url": null,
+    "answer_window": {
+      "started_at": "2026-04-18T10:30:00",
+      "answer_time_seconds": 30,
+      "grace_period_seconds": 5,
+      "ends_at": "2026-04-18T10:30:30",
+      "accepts_until": "2026-04-18T10:30:35",
+      "server_time": "2026-04-18T10:30:00"
+    },
     "answers": [
       {
         "id": "d93e1e62-6a49-4407-a209-710ff0ac1ea5",
@@ -310,9 +332,13 @@ Frontend behavior:
 - Render answer controls based on `question.question_type`.
 - Clear any previous selected answers.
 - Enable answer submission.
-- Start a local countdown using `question.answer_time` if present.
+- Start a local countdown using `question.answer_window.ends_at` and
+  `question.answer_window.server_time`.
 
-The current backend does not auto-submit when the local timer reaches zero. The frontend may disable controls locally at zero, but server-side timeout enforcement is not implemented yet.
+The backend accepts answers until `question.answer_window.accepts_until`, which
+includes the configured grace period for slow connections. The frontend should
+disable visible answer controls at `ends_at`, but may still let an in-flight
+submit complete during the grace window.
 
 ### `answer_accepted`
 
@@ -572,7 +598,9 @@ Replace `api.example.com` with the real API host.
 - The frontend must never display correct answers during the live quiz. The WebSocket question payload intentionally does not include `is_correct`.
 - The frontend should not allow changing an answer after submission.
 - The frontend should wait for server events instead of locally advancing questions.
-- After each question, the frontend should expect `leaderboard_updated` before the next `question_opened`.
+- After each question, the admin calls `POST /sessions/{session_id}/next`; player
+  clients should expect `leaderboard_updated` before the next `question_opened`
+  or `session_finished`.
 - Joining after session start is not allowed.
 - Reconnect is allowed after session start only with valid saved credentials.
 - Runtime game state is stored in Redis and expires 24 hours after finish.

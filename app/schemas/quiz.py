@@ -196,6 +196,15 @@ class PlayerAnswerOption(BaseModel):
     answer_text: str
 
 
+class PlayerAnswerWindow(BaseModel):
+    started_at: datetime | None
+    answer_time_seconds: int
+    grace_period_seconds: int
+    ends_at: datetime | None
+    accepts_until: datetime | None
+    server_time: datetime
+
+
 class PlayerQuestion(BaseModel):
     id: UUID
     question_text: str
@@ -206,6 +215,7 @@ class PlayerQuestion(BaseModel):
     points_for_incorrect_answer: int
     hint: str | None
     image_url: str | None
+    answer_window: PlayerAnswerWindow | None = None
     answers: list[PlayerAnswerOption]
 
 

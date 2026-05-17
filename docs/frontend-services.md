@@ -508,12 +508,40 @@ Frontend behavior:
 - Disable new player join UI.
 - Connected players receive `question_opened` through WebSocket.
 - Admin UI should switch to live monitoring.
-- After every question, connected players receive `leaderboard_updated`, then after `delay_seconds` the next `question_opened` or final `session_finished`.
+- After each question, the admin advances the session with
+  `POST /sessions/{session_id}/next`.
 
 Validation:
 
 - Session must be in `lobby`.
 - At least one active participant must be connected.
+
+### Advance To Next Question
+
+```http
+POST /sessions/{session_id}/next
+Authorization: Bearer <access_token>
+```
+
+Advances a live session from the current question to the next question.
+
+Response: `SessionDetail`
+
+Frontend behavior:
+
+- Use this when the admin clicks the next-question control.
+- If the current question leaderboard was not already emitted, connected players
+  first receive `leaderboard_updated`.
+- If another question exists, connected players receive `question_opened` after
+  the leaderboard delay.
+- If the current question is the last question, connected players receive
+  `session_finished` after the leaderboard delay.
+- Update the admin UI from the returned `SessionDetail`.
+
+Validation:
+
+- Session must be `live`.
+- Only the session owner can advance it.
 
 ### End Session
 
@@ -665,7 +693,7 @@ Recommended modules:
 - `authService`: login redirect, cookie-backed refresh, logout, current user.
 - `quizService`: create/list/get/update/delete quiz.
 - `questionService`: create/update/delete questions and answers.
-- `sessionService`: create/open/start/end/get session.
+- `sessionService`: create/open/start/next/end/get session.
 - `gameSocketService`: player WebSocket connection and event handling.
 - `leaderboardService` or UI slice: render `leaderboard_updated` and latest admin `leaderboard`.
 
