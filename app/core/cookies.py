@@ -46,9 +46,36 @@ def _resolve_cookie_domain() -> str | None:
     ]
     shared_domain = _common_cookie_domain(candidates)
     if shared_domain:
+        print(
+            "[cookie-debug] domain resolve:",
+            {
+                "configured": configured,
+                "frontend_admin": frontend_admin_host,
+                "frontend_client": frontend_client_host,
+                "selected": shared_domain,
+            },
+        )
         return shared_domain
     if configured and configured != "localhost":
+        print(
+            "[cookie-debug] domain resolve:",
+            {
+                "configured": configured,
+                "frontend_admin": frontend_admin_host,
+                "frontend_client": frontend_client_host,
+                "selected": configured,
+            },
+        )
         return configured
+    print(
+        "[cookie-debug] domain resolve:",
+        {
+            "configured": configured,
+            "frontend_admin": frontend_admin_host,
+            "frontend_client": frontend_client_host,
+            "selected": None,
+        },
+    )
     return None
 
 
@@ -76,18 +103,40 @@ def _base_cookie_kwargs() -> CookieKwargs:
 
 def set_auth_cookies(response: Response, tokens: JWTTokens) -> None:
     base = _base_cookie_kwargs()
+    access_max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    refresh_max_age = settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60
+
+    print(
+        "[cookie-debug] set_auth_cookies input:",
+        {
+            "environment": settings.ENVIRONMENT,
+            "domain_setting": settings.DOMAIN,
+            "cookie_base": base,
+            "access_max_age": access_max_age,
+            "refresh_max_age": refresh_max_age,
+            "access_token_preview": f"{tokens.access_token[:12]}...",
+            "refresh_token_preview": f"{tokens.refresh_token[:12]}...",
+        },
+    )
 
     response.set_cookie(
         key=COOKIE_ACCESS_TOKEN,
         value=tokens.access_token,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=access_max_age,
         httponly=False,
         **base,
     )
     response.set_cookie(
         key=COOKIE_REFRESH_TOKEN,
         value=tokens.refresh_token,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=refresh_max_age,
         httponly=True,
         **base,
     )
+
+    set_cookie_headers = [
+        value.decode("latin-1")
+        for key, value in response.raw_headers
+        if key.lower() == b"set-cookie"
+    ]
+    print("[cookie-debug] response set-cookie headers:", set_cookie_headers)
