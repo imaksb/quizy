@@ -1,3 +1,4 @@
+from urllib.parse import urlsplit
 from starlette.responses import Response
 
 from app.core.settings import settings
@@ -7,6 +8,48 @@ from app.schemas.auth import JWTTokens
 
 COOKIE_ACCESS_TOKEN = "ACCESS_TOKEN"
 COOKIE_REFRESH_TOKEN = "REFRESH_TOKEN"
+
+
+def _normalize_host(value: str) -> str | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    host = urlsplit(raw).hostname
+    return host.lower() if host else None
+
+
+def _common_cookie_domain(hosts: list[str]) -> str | None:
+    parts = [host.split(".") for host in hosts if host]
+    if not parts:
+        return None
+    common_suffix: list[str] = []
+    for labels in zip(*(reversed(host_part) for host_part in parts), strict=False):
+        if len(set(labels)) != 1:
+            break
+        common_suffix.append(labels[0])
+    if len(common_suffix) < 2:
+        return None
+    return ".".join(reversed(common_suffix))
+
+
+def _resolve_cookie_domain() -> str | None:
+    configured = _normalize_host(settings.DOMAIN)
+    frontend_admin_host = _normalize_host(settings.FRONTEND_ADMIN_URL)
+    frontend_client_host = _normalize_host(settings.FRONTEND_CLIENT_URL)
+
+    candidates = [
+        host
+        for host in [configured, frontend_admin_host, frontend_client_host]
+        if host and host != "localhost"
+    ]
+    shared_domain = _common_cookie_domain(candidates)
+    if shared_domain:
+        return shared_domain
+    if configured and configured != "localhost":
+        return configured
+    return None
 
 
 def _base_cookie_kwargs() -> CookieKwargs:
@@ -25,7 +68,9 @@ def _base_cookie_kwargs() -> CookieKwargs:
         "samesite": "lax" if is_dev else "none",
     }
     if not is_dev:
-        kwargs["domain"] = settings.DOMAIN
+        domain = _resolve_cookie_domain()
+        if domain:
+            kwargs["domain"] = domain
     return kwargs
 
 
