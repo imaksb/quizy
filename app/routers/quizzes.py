@@ -22,7 +22,7 @@ from app.services.quiz_service import QuizService
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 
 
-@router.post("/", response_model=QuizDetail, status_code=201)
+@router.post("", response_model=QuizDetail, status_code=201)
 async def create_quiz(
     data: QuizCreate,
     session: SessionDep,
@@ -33,7 +33,7 @@ async def create_quiz(
     return QuizDetail.model_validate(quiz)
 
 
-@router.get("/", response_model=QuizListResponse)
+@router.get("", response_model=QuizListResponse)
 async def get_quizzes(
     session: SessionDep,
     admin_user: CurrentAdminUser,  # noqa: ARG001
