@@ -189,6 +189,7 @@ class SessionDetail(SessionCreateResponse):
     participants: list[SessionParticipantDetail]
     question_states: list[SessionQuestionStateDetail]
     leaderboard: dict | None = None
+    leaderboard_history: list[dict] = Field(default_factory=list)
 
 
 class PlayerAnswerOption(BaseModel):

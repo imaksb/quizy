@@ -63,7 +63,6 @@ class QuizRepository(BaseRepository):
             conditions.append(has_active_session)
         elif status_filter == "published":
             conditions.append(Quiz.is_published.is_(True))
-            conditions.append(~has_active_session)
         elif status_filter == "draft":
             conditions.append(Quiz.is_published.is_(False))
 

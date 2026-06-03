@@ -155,6 +155,40 @@ class QuizSession(Base, TableNameMixin, TimeoutMixin):
         back_populates="session",
         cascade="all, delete-orphan",
     )
+    leaderboard_snapshots: Mapped[list["SessionLeaderboardSnapshot"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="SessionLeaderboardSnapshot.question_order_index",
+    )
+
+
+class SessionLeaderboardSnapshot(Base, TableNameMixin):
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "question_id",
+            name="uq_sessionleaderboardsnapshot_session_question",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        SAUUID, primary_key=True, default=uuid.uuid4, unique=True
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        SAUUID,
+        ForeignKey("quizsession.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    question_id: Mapped[UUID] = mapped_column(SAUUID, nullable=False, index=True)
+    question_order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    delay_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    entries: Mapped[list[dict]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP, server_default=func.now(), nullable=False
+    )
+
+    session: Mapped["QuizSession"] = relationship(back_populates="leaderboard_snapshots")
 
 
 class SessionParticipant(Base, TableNameMixin):

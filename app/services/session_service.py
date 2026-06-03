@@ -18,6 +18,7 @@ from app.databases.models import (
     Quiz,
     QuizSession,
     SessionAnswerResult,
+    SessionLeaderboardSnapshot,
     SessionPlayerResult,
     SessionResult,
     SessionStatus,
@@ -734,6 +735,8 @@ class SessionService:
         if raw_leaderboard:
             leaderboard = json.loads(raw_leaderboard)
 
+        leaderboard_history = await self._leaderboard_history_payloads(session_id, state)
+
         return {
             "type": "snapshot",
             "session": self._session_payload(state),
@@ -741,6 +744,7 @@ class SessionService:
             "question": self._player_question(question, state) if question else None,
             "has_answered": has_answered,
             "leaderboard": leaderboard,
+            "leaderboard_history": leaderboard_history,
         }
 
     @staticmethod
@@ -854,10 +858,7 @@ class SessionService:
             state,
             current_question,
         )
-        await self.redis.rpush(
-            self._leaderboards_key(session_id),
-            json.dumps(leaderboard_payload),
-        )
+        await self._store_leaderboard_snapshot(session_id, leaderboard_payload)
         return [leaderboard_payload]
 
     async def _leaderboard_already_emitted_for_question(
@@ -916,10 +917,7 @@ class SessionService:
                 state,
                 current_question,
             )
-            await self.redis.rpush(
-                self._leaderboards_key(quiz_session.id),
-                json.dumps(leaderboard_payload),
-            )
+            await self._store_leaderboard_snapshot(quiz_session.id, leaderboard_payload)
             payloads.append(leaderboard_payload)
 
         next_question = self._next_question(quiz_snapshot, current_question)
@@ -1180,6 +1178,10 @@ class SessionService:
             -1,
         )
         payload["leaderboard"] = json.loads(raw_leaderboard) if raw_leaderboard else None
+        payload["leaderboard_history"] = await self._leaderboard_history_payloads(
+            quiz_session.id,
+            state,
+        )
         return payload
 
     @staticmethod
@@ -1246,6 +1248,90 @@ class SessionService:
         if points_awarded is not None:
             payload["points_awarded"] = points_awarded
         return payload
+
+    async def _store_leaderboard_snapshot(
+        self,
+        session_id: str | UUID,
+        payload: dict[str, Any],
+    ) -> None:
+        await self.redis.rpush(
+            self._leaderboards_key(session_id),
+            json.dumps(payload),
+        )
+        await self._persist_leaderboard_snapshot(session_id, payload)
+
+    async def _persist_leaderboard_snapshot(
+        self,
+        session_id: str | UUID,
+        payload: dict[str, Any],
+    ) -> None:
+        question_id = payload.get("question_id")
+        if not question_id:
+            return
+
+        session_uuid = UUID(str(session_id))
+        question_uuid = UUID(str(question_id))
+        existing = await self.session.scalar(
+            select(SessionLeaderboardSnapshot).where(
+                SessionLeaderboardSnapshot.session_id == session_uuid,
+                SessionLeaderboardSnapshot.question_id == question_uuid,
+            )
+        )
+        if existing:
+            existing.question_order_index = int(payload["question_order_index"])
+            existing.delay_seconds = int(
+                payload.get("delay_seconds", LEADERBOARD_DELAY_SECONDS)
+            )
+            existing.entries = payload["entries"]
+        else:
+            self.session.add(
+                SessionLeaderboardSnapshot(
+                    session_id=session_uuid,
+                    question_id=question_uuid,
+                    question_order_index=int(payload["question_order_index"]),
+                    delay_seconds=int(
+                        payload.get("delay_seconds", LEADERBOARD_DELAY_SECONDS)
+                    ),
+                    entries=payload["entries"],
+                )
+            )
+        await self.session.commit()
+
+    async def _leaderboard_history_payloads(
+        self,
+        session_id: str | UUID,
+        state: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        snapshots = await self.session.scalars(
+            select(SessionLeaderboardSnapshot)
+            .where(SessionLeaderboardSnapshot.session_id == UUID(str(session_id)))
+            .order_by(SessionLeaderboardSnapshot.question_order_index)
+        )
+        rows = list(snapshots)
+        if rows:
+            session_payload = self._session_payload(state)
+            return [
+                {
+                    "type": "leaderboard_updated",
+                    "session": session_payload,
+                    "question_id": str(row.question_id),
+                    "question_order_index": row.question_order_index,
+                    "delay_seconds": row.delay_seconds,
+                    "entries": row.entries,
+                }
+                for row in rows
+            ]
+
+        raw_items = await self.redis.lrange(self._leaderboards_key(session_id), 0, -1)
+        history: list[dict[str, Any]] = []
+        for raw_item in raw_items:
+            if not raw_item:
+                continue
+            try:
+                history.append(json.loads(raw_item))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        return history
 
     async def _leaderboard_payload(
         self,
