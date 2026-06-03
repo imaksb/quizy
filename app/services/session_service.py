@@ -656,7 +656,15 @@ class SessionService:
         answer_key = self._answers_key(session_id, current_question["id"])
         existing_answer = await self.redis.hget(answer_key, str(participant_id))
         if existing_answer:
-            return session_id, [await self._answer_accepted_payload(session_id, state)], False
+            is_correct, points_awarded = self._answer_feedback_from_stored(existing_answer)
+            return session_id, [
+                await self._answer_accepted_payload(
+                    session_id,
+                    state,
+                    is_correct=is_correct,
+                    points_awarded=points_awarded,
+                )
+            ], False
 
         answer_payload = self._score_answer(current_question, data.answer_option_ids)
         answer_payload.update(
@@ -672,7 +680,16 @@ class SessionService:
             json.dumps(answer_payload),
         )
         if not inserted:
-            return session_id, [await self._answer_accepted_payload(session_id, state)], False
+            raced_answer = await self.redis.hget(answer_key, str(participant_id))
+            is_correct, points_awarded = self._answer_feedback_from_stored(raced_answer)
+            return session_id, [
+                await self._answer_accepted_payload(
+                    session_id,
+                    state,
+                    is_correct=is_correct,
+                    points_awarded=points_awarded,
+                )
+            ], False
 
         participant["score"] += answer_payload["points_awarded"]
         await self._save_participant(session_id, participant)
@@ -686,7 +703,14 @@ class SessionService:
         if completion_payloads:
             return session_id, completion_payloads, True
 
-        return session_id, [await self._answer_accepted_payload(session_id, state)], False
+        return session_id, [
+            await self._answer_accepted_payload(
+                session_id,
+                state,
+                is_correct=answer_payload["is_correct"],
+                points_awarded=answer_payload["points_awarded"],
+            )
+        ], False
 
     async def snapshot_for_participant(
         self,
@@ -1187,16 +1211,41 @@ class SessionService:
             "participants": await self._participants_payload(session_id),
         }
 
+    @staticmethod
+    def _answer_feedback_from_stored(
+        stored: str | bytes | None,
+    ) -> tuple[bool | None, int | None]:
+        if not stored:
+            return None, None
+        try:
+            data = json.loads(stored)
+        except (json.JSONDecodeError, TypeError):
+            return None, None
+        is_correct = data.get("is_correct")
+        points_awarded = data.get("points_awarded")
+        return (
+            is_correct if isinstance(is_correct, bool) else None,
+            points_awarded if isinstance(points_awarded, int) else None,
+        )
+
     async def _answer_accepted_payload(
         self,
         session_id: str | UUID,
         state: dict[str, str],
+        *,
+        is_correct: bool | None = None,
+        points_awarded: int | None = None,
     ) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "type": "answer_accepted",
             "session": self._session_payload(state),
             "participants": await self._participants_payload(session_id),
         }
+        if is_correct is not None:
+            payload["is_correct"] = is_correct
+        if points_awarded is not None:
+            payload["points_awarded"] = points_awarded
+        return payload
 
     async def _leaderboard_payload(
         self,
